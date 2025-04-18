@@ -10,7 +10,7 @@ This project provides a Python script that installs and configures the necessary
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/[username]/Snipaster.git
+   git clone https://github.com/groxaxo/Snipaster.git
    cd Snipaster
    ```
 2. Make the script executable:
