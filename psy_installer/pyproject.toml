@@ -1,0 +1,8 @@
+[project]
+name = "psychedelic-installer"
+version = "0.1.0"
+description = "A template for creating psychedelic ASCII art installers"
+requires-python = ">=3.11"
+dependencies = [
+    "asciimatics>=1.15.0",
+]
