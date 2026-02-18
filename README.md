@@ -4,7 +4,7 @@ Snipaster is a utility script to automate the setup of a screenshot tool on Ubun
 
 ## Overview
 
-This project provides a Python script that installs and configures the necessary tools (`scrot`, `xbindkeys`, `xclip`) to enable screenshot functionality with a keyboard shortcut. It also sets up the tool to start automatically on login.
+This project provides a Python script that installs and configures the necessary tools (`scrot`/`gnome-screenshot`, `xbindkeys`/`gsettings`, `xclip`/`wl-clipboard`) to enable screenshot functionality with a keyboard shortcut. It automatically detects your environment (X11 or Wayland) and sets up the appropriate tools.
 
 ## Installation
 
