@@ -8,19 +8,32 @@ This project provides a Python script that installs and configures the necessary
 
 ## Installation
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/groxaxo/Snipaster.git
-   cd Snipaster
-   ```
-2. Make the script executable:
-   ```bash
-   chmod +x screenshot_setup.py
-   ```
-3. Run the script:
-   ```bash
-   ./screenshot_setup.py
-   ```
+1.  Clone this repository:
+    ```bash
+    git clone https://github.com/groxaxo/Snipaster.git
+    cd Snipaster
+    ```
+
+2.  **Recommended: Psychedelic Installer (requires `uv`)**
+    
+    This project uses a "psychedelic" installer with generative art. You need `uv` installed (or `pip` if you manually install `asciimatics`).
+
+    ```bash
+    # Install uv if you don't have it
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    source $HOME/.cargo/env  # or restart terminal
+
+    # Run the trippy installer
+    uv run install_snipaster.py
+    ```
+
+3.  **Alternative: Manual Legacy Install**
+    
+    If you prefer the old text-based installer:
+    ```bash
+    chmod +x screenshot_setup.py
+    ./screenshot_setup.py
+    ```
 
 ## Usage
 
