@@ -4,7 +4,7 @@ import time
 import subprocess
 import os
 import sys
-from asciimatics.effects import Print, Cycle, Stars
+from asciimatics.effects import Print, Cycle, Stars, Effect
 from asciimatics.renderers import Plasma, FigletText, Rainbow
 from asciimatics.scene import Scene
 from asciimatics.screen import Screen
@@ -235,14 +235,19 @@ X-GNOME-Autostart-enabled=true
         INSTALL_SUCCESS = True  # Exit anyway
 
 
-class CheckInstallStatus(object):
+class CheckInstallStatus(Effect):
     """Effect to check if installation is complete."""
 
-    def __init__(self, screen):
-        self._screen = screen
+    def __init__(self, screen, **kwargs):
+        super(CheckInstallStatus, self).__init__(screen, **kwargs)
 
-    def reset(self):
-        pass
+    def _update(self, frame_no):
+        if INSTALL_SUCCESS:
+            raise StopApplication("Install Complete")
+
+    @property
+    def stop_frame(self):
+        return 0
 
     def process_event(self, event):
         # Allow quitting with 'q'
@@ -251,30 +256,17 @@ class CheckInstallStatus(object):
                 raise StopApplication("User Cancelled")
         return event
 
-    def update(self, frame_no):
-        if INSTALL_SUCCESS:
-            raise StopApplication("Install Complete")
-
-    def register_scene(self, scene):
-        pass
-
-    def delete(self):
-        pass
-
-
-class StatusText(object):
-    """Effect to display the current installation status."""
-
-    def __init__(self, screen):
-        self._screen = screen
-
     def reset(self):
         pass
 
-    def process_event(self, event):
-        return event
 
-    def update(self, frame_no):
+class StatusText(Effect):
+    """Effect to display the current installation status."""
+
+    def __init__(self, screen, **kwargs):
+        super(StatusText, self).__init__(screen, **kwargs)
+
+    def _update(self, frame_no):
         # Center the text
         msg = f" {INSTALL_MESSAGE} "
         x = max(0, (self._screen.width - len(msg)) // 2)
@@ -309,21 +301,31 @@ class StatusText(object):
                 bar, bx, by, colour=Screen.COLOUR_GREEN, bg=Screen.COLOUR_BLACK
             )
 
-    def register_scene(self, scene):
-        pass
+    @property
+    def stop_frame(self):
+        return 0
 
-    def delete(self):
+    def reset(self):
         pass
 
 
 def demo(screen):
     """The main animation setup."""
 
+    # Create renderers first to calculate dimensions
+    title_renderer = FigletText(INSTALL_NAME, font="big")
+    rainbow_title = Rainbow(screen, title_renderer)
+
+    # Calculate centered position
+    # max_width might be 0 if font not loaded? No, pyfiglet usually works.
+    title_x = max(0, (screen.width - title_renderer.max_width) // 2)
+
     effects = [
         # 1. Background: Plasma
+        # Use screen.colours to respect terminal capabilities
         Print(
             screen,
-            Plasma(screen.height, screen.width, colours=256),
+            Plasma(screen.height, screen.width, screen.colours),
             0,
             speed=1,
             transparent=False,
@@ -331,9 +333,9 @@ def demo(screen):
         # 2. Title: Rainbow Figlet
         Print(
             screen,
-            Rainbow(screen, FigletText(INSTALL_NAME, font="big")),
+            rainbow_title,
             y=(screen.height // 2) - 6,
-            x=Screen.CENTER,
+            x=title_x,
             speed=1,
             transparent=True,
         ),
@@ -349,6 +351,7 @@ def demo(screen):
 def main():
     # Ensure sudo permissions before starting UI
     try:
+        # Allow user to see sudo prompt if needed
         subprocess.run(["sudo", "-v"], check=True)
     except subprocess.CalledProcessError:
         print("Sudo permission required for installation.")
@@ -363,12 +366,24 @@ def main():
     except ResizeScreenError:
         pass
     except Exception as e:
-        print(f"Display error: {e}")
+        # Log error to file for debugging
+        with open("install_debug.log", "w") as f:
+            f.write(f"Display error: {e}\n")
+        print(f"Graphic mode failed: {e}. Switching to text mode.")
 
     # Ensure thread joins
     if t.is_alive():
         print("Waiting for installation to finish...")
+        # If graphic mode failed, show status in text mode
+        while t.is_alive():
+            print(f"\r{INSTALL_MESSAGE}", end="", flush=True)
+            time.sleep(0.5)
+        print()  # Newline
         t.join()
+
+    if not INSTALL_SUCCESS:
+        print(f"\nInstallation failed: {INSTALL_MESSAGE}")
+        sys.exit(1)
 
     # Final clear and message
     print("\033[H\033[J", end="")  # Clear screen
