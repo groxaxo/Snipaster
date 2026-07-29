@@ -1,11 +1,11 @@
 [project]
 name = "snipaster"
 version = "0.1.0"
-description = "A fast, local screenshot hotkey workflow for Ubuntu Wayland and X11."
+description = "A local Ubuntu screenshot, annotation, desktop launcher, and tray workflow."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-keywords = ["screenshot", "ubuntu", "wayland", "x11", "clipboard", "hotkey"]
+keywords = ["screenshot", "annotation", "ubuntu", "wayland", "x11", "clipboard", "hotkey"]
 dependencies = [
     "asciimatics>=1.15.0",
 ]
