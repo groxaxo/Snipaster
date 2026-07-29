@@ -1,31 +1,44 @@
 <p align="center">
-  <img src="./assets/snipaster-banner.svg" alt="Snipaster — press F1, select a region, save it, and copy it to the clipboard" width="100%" />
+  <img src="./assets/snipaster-banner.svg" alt="Snipaster — capture, annotate, save, and copy screenshots on Ubuntu" width="100%" />
+</p>
+
+<p align="center">
+  <img src="./assets/snipaster-icon.svg" alt="Snipaster capture icon" width="112" />
 </p>
 
 <h1 align="center">Snipaster</h1>
 
 <p align="center">
-  <strong>A fast, local screenshot workflow for Ubuntu.</strong><br />
-  Press <kbd>F1</kbd>, drag over a region, then paste the captured image anywhere.
+  <strong>Press F1. Capture a region. Mark it up immediately.</strong><br />
+  A fast, local screenshot and annotation workflow for Ubuntu Wayland and X11.
 </p>
 
 <p align="center">
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/groxaxo/Snipaster?style=for-the-badge" /></a>
   <img alt="Python 3.11 or newer" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&amp;logo=python&amp;logoColor=white" />
   <img alt="Ubuntu" src="https://img.shields.io/badge/Ubuntu-Wayland%20%2B%20X11-E95420?style=for-the-badge&amp;logo=ubuntu&amp;logoColor=white" />
-  <img alt="Local by design" src="https://img.shields.io/badge/captures-local%20by%20design-19B99A?style=for-the-badge" />
+  <img alt="Local by design" src="https://img.shields.io/badge/captures-local%20only-19B99A?style=for-the-badge" />
 </p>
 
-Snipaster turns a single hotkey into the full capture loop: **select → save → copy → paste**. It configures the appropriate Linux screenshot and clipboard tools, stores timestamped PNG files under `~/Pictures/Screenshots/`, and keeps every capture on your machine—no account, cloud upload, or telemetry.
+Snipaster turns three easy entry points—**F1**, a **desktop capture icon**, and a **one-click tray icon**—into the same workflow:
 
-## Why Snipaster?
+> **select a region → draw or write → select/crop → save and copy**
 
-- **One-key workflow:** <kbd>F1</kbd> starts an interactive region capture.
-- **Clipboard-ready:** the resulting PNG is copied immediately for pasting into chat, documents, image editors, and issue trackers.
-- **Wayland and X11 aware:** GNOME Wayland uses `gnome-screenshot`, `gsettings`, and `wl-copy`; X11 uses `scrot`, `xbindkeys`, and `xclip`.
-- **Automatic filing:** captures are preserved with timestamped names, not discarded after copying.
-- **Two installers:** choose a colorful terminal experience or a plain dependency-light setup script.
-- **Transparent and hackable:** the entire workflow is a pair of small Python installers plus a generated shell wrapper.
+Every screenshot stays on your machine. Snipaster has no account, cloud upload, analytics, or telemetry.
+
+## What is included
+
+| Feature | Behaviour |
+|---|---|
+| **F1 capture** | Opens interactive region capture and launches Snipaster automatically when the capture succeeds. |
+| **Desktop icon** | Installs `Snipaster.desktop` on the user's desktop and in the application menu. |
+| **Tray capture icon** | Starts at login; a normal click captures immediately and right-click exposes Capture, Open Screenshots, and Quit. |
+| **Draw** | Freehand drawing with configurable colour and brush width. |
+| **Text** | Click anywhere on the image, enter text, and control its colour and size. |
+| **Select** | Drag a rectangular region, then copy only that selection or crop the image to it. |
+| **Undo / Redo** | Reverses drawing, text, and crop operations without modifying the source until Save. |
+| **Clipboard** | Copies the initial capture immediately; Save and Copy refresh the clipboard with the edited image. |
+| **Local history** | Stores timestamped PNG files under `~/Pictures/Screenshots/`. |
 
 ## Quick start
 
@@ -33,162 +46,211 @@ Snipaster turns a single hotkey into the full capture loop: **select → save �
 git clone https://github.com/groxaxo/Snipaster.git
 cd Snipaster
 
-# Recommended: animated terminal installer
+# Recommended animated installer
 uv run install_snipaster.py
 ```
 
-Once installation completes, press <kbd>F1</kbd>, select an area, and paste with <kbd>Ctrl</kbd> + <kbd>V</kbd>.
+The installer will:
 
-> [!NOTE]
-> The installer requests `sudo` only to install missing Debian packages through `apt`. The hotkey, capture wrapper, screenshots, and desktop configuration are created for your current user.
+1. Install any missing Ubuntu runtime packages.
+2. Install the Snipaster application under `~/.local/share/snipaster/`.
+3. Add the `snipaster` command under `~/.local/bin/`.
+4. Create the application-menu and desktop capture icons.
+5. Enable the capture tray icon at login.
+6. Bind <kbd>F1</kbd> on GNOME, or configure `xbindkeys` on non-GNOME X11.
+
+> [!IMPORTANT]
+> Run the installer as your normal desktop user—**not** with `sudo`. It requests administrator access only when `apt` needs to install missing packages.
 
 ### Plain installer
 
-Do not need the animated UI? Run the standard-library installer directly:
+The plain entry point has no animated-terminal dependency:
 
 ```bash
 python3 screenshot_setup.py
 ```
 
-The animated installer requires Python 3.11+ and [`uv`](https://docs.astral.sh/uv/getting-started/installation/), which resolves the pinned `asciimatics` dependency from this repository. The plain installer only requires Python 3 and the normal Ubuntu package manager.
+The installed desktop application uses Ubuntu's system Python and PyQt5. The animated installer alone uses the `asciimatics` dependency resolved by `uv`.
 
-## How it works
+## Everyday workflow
 
 ```mermaid
 flowchart LR
-    A["Press F1"] --> B["Select a screen region"]
-    B --> C{"Desktop session"}
-    C -->|GNOME Wayland| D["gnome-screenshot"]
-    C -->|X11| E["scrot"]
-    D --> F["Save timestamped PNG"]
-    E --> F
-    F --> G{"Clipboard backend"}
-    G -->|Wayland| H["wl-copy"]
-    G -->|X11| I["xclip"]
-    H --> J["Paste anywhere"]
-    I --> J
+    A["Press F1"] --> D["Select a screen region"]
+    B["Click desktop icon"] --> D
+    C["Click tray capture icon"] --> D
+    D --> E["Snipaster editor opens"]
+    E --> F["Draw"]
+    E --> G["Add text"]
+    E --> H["Select / crop"]
+    F --> I["Save and copy"]
+    G --> I
+    H --> I
+    I --> J["Paste anywhere"]
 ```
 
-Every successful capture is written to:
+1. Press <kbd>F1</kbd>, click **Snipaster** on the desktop, or click the tray capture icon.
+2. Drag over the part of the screen to capture.
+3. Use **Draw**, **Text**, or **Select** in the editor.
+4. Choose **Crop** or **Copy selection** when a selection is active.
+5. Click **Save & Close**, then paste with <kbd>Ctrl</kbd> + <kbd>V</kbd>.
 
-```text
-~/Pictures/Screenshots/screenshot-YYYY-MM-DD-HH-MM-SS.png
-```
+Cancelling the region selector creates no file and does not open the editor.
 
-A desktop notification confirms that the screenshot was saved and copied whenever `notify-send` is available.
+## Editor shortcuts
 
-## Compatibility
+| Shortcut | Action |
+|---|---|
+| <kbd>D</kbd> | Draw tool |
+| <kbd>T</kbd> | Text tool |
+| <kbd>S</kbd> | Selection tool |
+| <kbd>Ctrl</kbd> + <kbd>Z</kbd> | Undo |
+| <kbd>Ctrl</kbd> + <kbd>Y</kbd> or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> | Redo |
+| <kbd>Ctrl</kbd> + <kbd>C</kbd> | Copy selection, or the whole image when none is selected |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> | Copy the selected region |
+| <kbd>Ctrl</kbd> + <kbd>S</kbd> | Save the edited PNG and copy it |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Save As |
+| <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Save and close |
+| <kbd>Esc</kbd> | Clear selection; press again to close |
 
-| Environment | Capture backend | Hotkey integration | Clipboard | Support level |
-|---|---|---|---|---|
-| Ubuntu GNOME on Wayland | `gnome-screenshot` | GNOME custom shortcut via `gsettings` | `wl-copy` | First-class |
-| Ubuntu/Debian on X11 | `scrot` | `xbindkeys` with autostart | `xclip` | Supported |
-| Other Wayland compositors | `grim` + `slurp` fallback in the generated wrapper | Configure in the compositor manually | `wl-copy` | Manual integration |
+## Capture backends
 
-For a non-GNOME Wayland compositor, install `grim` and `slurp`, then bind `~/.local/bin/snipaster_shot` using your compositor's own shortcut configuration. The current automatic keybinding setup targets GNOME Wayland and X11.
+| Desktop session | Region capture | F1 integration | Status |
+|---|---|---|---|
+| Ubuntu GNOME on Wayland | `gnome-screenshot` | GNOME custom shortcut through `gsettings` | First-class |
+| Ubuntu GNOME on X11 | `gnome-screenshot` or `scrot` | GNOME custom shortcut through `gsettings` | First-class |
+| Other X11 desktops | `scrot` | Managed block inside the existing `~/.xbindkeysrc` | Supported |
+| wlroots Wayland compositors | `grim` + `slurp` when already installed | Bind `~/.local/bin/snipaster capture` in the compositor | Manual hotkey |
 
-> [!WARNING]
-> On X11, the current installer writes `~/.xbindkeysrc`. Back up that file before installation when it already contains custom bindings.
+The X11 installer is idempotent and preserves unrelated `xbindkeys` shortcuts. It replaces only the block delimited by Snipaster's managed markers.
 
-## What the installer changes
+## Files installed
 
 <details>
-<summary><strong>Show the complete system footprint</strong></summary>
-
-### Packages
-
-Missing packages are installed through `apt`:
-
-```text
-scrot
-xbindkeys
-xclip
-gnome-screenshot
-wl-clipboard
-```
-
-### Files and directories
+<summary><strong>Show the complete user-level footprint</strong></summary>
 
 | Path | Purpose |
 |---|---|
-| `~/.local/bin/snipaster_shot` | Generated capture, save, clipboard, and notification wrapper |
-| `~/Pictures/Screenshots/` | Timestamped screenshot output directory |
-| `~/.xbindkeysrc` | X11 hotkey configuration |
-| `~/.config/autostart/xbindkeys.desktop` | Starts `xbindkeys` after login on X11 |
+| `~/.local/share/snipaster/snipaster.py` | Capture, tray, editor, drawing, text, selection, crop, save, and clipboard application |
+| `~/.local/share/snipaster/snipaster-icon.svg` | Application icon used directly by Snipaster |
+| `~/.local/bin/snipaster` | Stable command-line launcher |
+| `~/.local/bin/snipaster_shot` | Compatibility launcher for existing installations |
+| `~/.local/share/icons/hicolor/scalable/apps/snipaster.svg` | Desktop and tray icon |
+| `~/.local/share/applications/snipaster.desktop` | Application-menu launcher |
+| `~/Desktop/Snipaster.desktop` | One-click desktop capture launcher |
+| `~/.config/autostart/snipaster-tray.desktop` | Starts the capture icon after login |
+| `~/Pictures/Screenshots/` | Timestamped PNG captures |
 
-On GNOME Wayland, Snipaster instead adds a custom media-key entry through `gsettings` and removes the X11 autostart file when present.
+GNOME also receives one custom shortcut named **Snipaster Capture**. Non-GNOME X11 receives one managed block in `~/.xbindkeysrc` and an `xbindkeys` autostart entry.
+
+### Ubuntu packages
+
+The installer checks and installs only missing packages from this runtime set:
+
+```text
+python3-pyqt5
+libqt5svg5
+qtwayland5
+gnome-screenshot
+scrot
+xbindkeys
+libnotify-bin
+xdg-utils
+```
 
 </details>
 
-## Everyday use
+## Command line
 
-1. Press <kbd>F1</kbd>.
-2. Click and drag over the region to capture.
-3. Release to save and copy the PNG.
-4. Paste it into any application that accepts images.
+```bash
+# Capture a region and open the annotation editor
+snipaster capture
 
-Cancelling the selection produces no file and leaves the clipboard unchanged.
+# Open an existing image in the editor
+snipaster edit ~/Pictures/Screenshots/example.png
+
+# Run the persistent tray capture icon
+snipaster tray
+
+# Open the screenshot folder
+snipaster open-folder
+```
+
+Running `snipaster` with no subcommand is equivalent to `snipaster capture`.
 
 ## Troubleshooting
 
-### Confirm the detected desktop session
+### F1 does not open Snipaster
+
+Run the capture command directly:
 
 ```bash
-printf 'session=%s\ndesktop=%s\n' "$XDG_SESSION_TYPE" "$XDG_CURRENT_DESKTOP"
+~/.local/bin/snipaster capture
 ```
 
-### Confirm the generated command exists
-
-```bash
-ls -l ~/.local/bin/snipaster_shot
-~/.local/bin/snipaster_shot
-```
-
-Running the second command directly separates capture problems from hotkey problems.
-
-### Check the clipboard backend
-
-```bash
-# Wayland
-command -v wl-copy
-
-# X11
-command -v xclip
-```
-
-### Inspect the GNOME shortcut registry
+On GNOME, inspect the registered shortcut:
 
 ```bash
 gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings
 ```
 
-When <kbd>F1</kbd> is already reserved by your desktop or an application, choose another shortcut by changing the binding in the installer before running it. GNOME and `xbindkeys` use different shortcut syntaxes.
+You can also open **Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts** and confirm that **Snipaster Capture** uses <kbd>F1</kbd>.
+
+### The tray icon is not visible
+
+Restart it manually:
+
+```bash
+pkill -f 'snipaster.py tray' 2>/dev/null || true
+~/.local/bin/snipaster tray
+```
+
+Snipaster checks whether the desktop exposes a system tray. When it does not, F1, the desktop launcher, and the application-menu launcher continue to work normally.
+
+### The desktop launcher opens as a text file
+
+The installer marks it executable and asks GNOME to trust it. Some desktop configurations still require **right-click → Allow Launching** once. The same launcher is always available from the application menu.
+
+### Capture works but the editor does not open
+
+Validate the graphical runtime:
+
+```bash
+/usr/bin/python3 -c 'from PyQt5 import QtCore, QtGui, QtWidgets; print("PyQt5 OK")'
+printf 'session=%s\ndesktop=%s\n' "$XDG_SESSION_TYPE" "$XDG_CURRENT_DESKTOP"
+```
+
+Then rerun the installer to restore missing runtime packages and installed files.
 
 ## Uninstall
 
-Remove the generated command and X11 autostart entry:
+Remove the user-level application and launchers:
 
 ```bash
-rm -f ~/.local/bin/snipaster_shot
-rm -f ~/.config/autostart/xbindkeys.desktop
-killall xbindkeys 2>/dev/null || true
+pkill -f 'snipaster.py tray' 2>/dev/null || true
+rm -rf ~/.local/share/snipaster
+rm -f ~/.local/bin/snipaster ~/.local/bin/snipaster_shot
+rm -f ~/.local/share/applications/snipaster.desktop
+rm -f ~/.local/share/icons/hicolor/scalable/apps/snipaster.svg
+rm -f ~/Desktop/Snipaster.desktop
+rm -f ~/.config/autostart/snipaster-tray.desktop
+rm -f ~/.config/autostart/snipaster-xbindkeys.desktop
 ```
 
-Then:
+Then remove **Snipaster Capture** from GNOME custom shortcuts, or delete the Snipaster managed block from `~/.xbindkeysrc` on non-GNOME X11. Existing screenshots and shared Ubuntu packages are intentionally left untouched.
 
-- **GNOME Wayland:** remove the **Snipaster** entry from *Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts*.
-- **X11:** remove the `# Snipaster keybinding` block from `~/.xbindkeysrc`, or restore the backup you made before installation.
+## Local validation
 
-Snipaster intentionally leaves your screenshot files and shared system packages untouched.
-
-## Contributing
-
-Issues and pull requests are welcome. Useful contributions include an idempotent uninstaller, configurable hotkeys, first-class support for more Wayland compositors, packaging, and automated local test scripts.
-
-Before submitting a change, run a syntax check locally:
+No hosted CI is required. Validate the repository directly on Ubuntu:
 
 ```bash
-python3 -m py_compile install_snipaster.py screenshot_setup.py
+python3 -m py_compile \
+  snipaster.py \
+  snipaster_installer.py \
+  install_snipaster.py \
+  screenshot_setup.py
+
+python3 -m unittest discover -s tests -v
 ```
 
 ## License
