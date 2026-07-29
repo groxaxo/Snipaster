@@ -1,328 +1,102 @@
 #!/usr/bin/env python3
+"""Animated Snipaster installer. Run with: uv run install_snipaster.py"""
+
+from __future__ import annotations
+
+import sys
 import threading
 import time
-import subprocess
-import os
-import sys
-from asciimatics.effects import Print, Cycle, Stars, Effect
-from asciimatics.renderers import Plasma, FigletText, Rainbow
+from typing import Optional
+
+from asciimatics.effects import Effect, Print
+from asciimatics.exceptions import ResizeScreenError, StopApplication
+from asciimatics.renderers import FigletText, Plasma, Rainbow
 from asciimatics.scene import Scene
 from asciimatics.screen import Screen
-from asciimatics.exceptions import ResizeScreenError, StopApplication
-from asciimatics.event import KeyboardEvent
 
-# --- CONFIGURATION ---
+from snipaster_installer import InstallError, InstallationResult, install, prepare_privileges
+
 INSTALL_NAME = "SNIPASTER"
+INSTALL_DONE = False
 INSTALL_SUCCESS = False
-INSTALL_MESSAGE = "Initializing..."
+INSTALL_MESSAGE = "Preparing installation..."
+INSTALL_ERROR: Optional[str] = None
+INSTALL_RESULT: Optional[InstallationResult] = None
 
 
-def check_and_install(package, command_name=None):
-    """Check if a package is installed, and install it if not."""
-    cmd_to_check = command_name if command_name else package
-    check_cmd = f"which {cmd_to_check}"
-
-    install_cmd = f"sudo apt install -y {package}"
-
-    # Check if installed
-    if (
-        subprocess.run(
-            check_cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        ).returncode
-        != 0
-    ):
-        subprocess.run(
-            f"sudo apt update && {install_cmd}",
-            shell=True,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+def set_status(message: str) -> None:
+    global INSTALL_MESSAGE
+    INSTALL_MESSAGE = message
 
 
-def create_wrapper_script(script_path):
-    """Create the screenshot wrapper script."""
-    script_content = """#!/bin/bash
-# Snipaster wrapper script
-
-# Generate filename
-TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
-DIR="$HOME/Pictures/Screenshots"
-FILE="$DIR/screenshot-$TIMESTAMP.png"
-
-mkdir -p "$DIR"
-
-# Detect session type and run appropriate screenshot tool
-if [ "$XDG_SESSION_TYPE" = "wayland" ]; then
-    if command -v gnome-screenshot >/dev/null; then
-        # GNOME Screenshot
-        gnome-screenshot -a -f "$FILE"
-    elif command -v grim >/dev/null && command -v slurp >/dev/null; then
-        # Grim/Slurp fallback
-        grim -g "$(slurp)" "$FILE"
-    else
-        notify-send "Snipaster" "No screenshot tool found (gnome-screenshot or grim)"
-        exit 1
-    fi
-else
-    # Fallback to scrot for X11
-    if command -v scrot >/dev/null; then
-        scrot -s "$FILE"
-    else
-        notify-send "Snipaster" "scrot not found"
-        exit 1
-    fi
-fi
-
-# Check if file was created (screenshot taken)
-if [ -f "$FILE" ]; then
-    # Copy to clipboard
-    if [ "$XDG_SESSION_TYPE" = "wayland" ] && command -v wl-copy >/dev/null; then
-        wl-copy < "$FILE"
-    elif command -v xclip >/dev/null; then
-        xclip -selection clipboard -t image/png -i "$FILE"
-    fi
-    
-    # Notify user (optional, helpful for confirmation)
-    if command -v notify-send >/dev/null; then
-        notify-send "Snipaster" "Screenshot saved and copied to clipboard"
-    fi
-fi
-"""
-    with open(script_path, "w") as f:
-        f.write(script_content)
-    os.chmod(script_path, 0o755)
-
-
-def setup_gnome_keybinding(command, binding, name="Snipaster"):
-    """Set up GNOME custom keybinding using gsettings."""
-    schema = "org.gnome.settings-daemon.plugins.media-keys"
-    key = "custom-keybindings"
-
+def run_installation() -> None:
+    global INSTALL_DONE, INSTALL_SUCCESS, INSTALL_ERROR, INSTALL_RESULT
     try:
-        current = subprocess.check_output(
-            ["gsettings", "get", schema, key], text=True
-        ).strip()
-    except subprocess.CalledProcessError:
-        return
-
-    if current == "@as []" or current == "[]":
-        bindings = []
-    else:
-        current = current.strip("[]")
-        if not current:
-            bindings = []
-        else:
-            bindings = [b.strip().strip("'") for b in current.split(",")]
-
-    path_base = (
-        "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom"
-    )
-
-    idx = 0
-    new_path = ""
-    while True:
-        path = f"{path_base}{idx}/"
-        if path not in bindings:
-            new_path = path
-            break
-        idx += 1
-
-    bindings.append(new_path)
-
-    bindings_str = "[" + ", ".join([f"'{b}'" for b in bindings]) + "]"
-    subprocess.run(
-        f'gsettings set {schema} {key} "{bindings_str}"', shell=True, check=True
-    )
-
-    rel_schema = f"{schema}.custom-keybinding:{new_path}"
-    subprocess.run(f"gsettings set {rel_schema} name '{name}'", shell=True, check=True)
-    subprocess.run(
-        f"gsettings set {rel_schema} command '{command}'", shell=True, check=True
-    )
-    subprocess.run(
-        f"gsettings set {rel_schema} binding '{binding}'", shell=True, check=True
-    )
-
-
-def run_installation():
-    """Run the actual installation commands."""
-    global INSTALL_SUCCESS, INSTALL_MESSAGE
-    try:
-        INSTALL_MESSAGE = "Checking system packages..."
-        packages_map = {
-            "scrot": "scrot",
-            "xbindkeys": "xbindkeys",
-            "xclip": "xclip",
-            "gnome-screenshot": "gnome-screenshot",
-            "wl-clipboard": "wl-copy",
-        }
-
-        # Simulate some steps for effect visibility if too fast
-        step_delay = 1.5
-
-        for pkg, cmd in packages_map.items():
-            INSTALL_MESSAGE = f"Installing {pkg}..."
-            check_and_install(pkg, cmd)
-            time.sleep(0.5)
-
-        INSTALL_MESSAGE = "Configuring directories..."
-        screenshot_dir = os.path.expanduser("~/Pictures/Screenshots")
-        autostart_dir = os.path.expanduser("~/.config/autostart")
-        os.makedirs(screenshot_dir, exist_ok=True)
-        os.makedirs(autostart_dir, exist_ok=True)
-        time.sleep(step_delay)
-
-        INSTALL_MESSAGE = "Creating wrapper script..."
-        script_path = os.path.expanduser("~/.local/bin/snipaster_shot")
-        os.makedirs(os.path.dirname(script_path), exist_ok=True)
-        create_wrapper_script(script_path)
-        time.sleep(step_delay)
-
-        INSTALL_MESSAGE = "Detecting session type..."
-        session_type = os.environ.get("XDG_SESSION_TYPE", "")
-        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
-        time.sleep(1.0)
-
-        if "wayland" in session_type.lower() and "gnome" in desktop.lower():
-            INSTALL_MESSAGE = "Configuring GNOME Wayland..."
-            setup_gnome_keybinding(script_path, "F1")
-
-            subprocess.run("killall xbindkeys 2>/dev/null || true", shell=True)
-
-            autostart_file = os.path.join(autostart_dir, "xbindkeys.desktop")
-            if os.path.exists(autostart_file):
-                os.remove(autostart_file)
-        else:
-            INSTALL_MESSAGE = "Configuring X11/Other..."
-            xbindkeys_config = os.path.expanduser("~/.xbindkeysrc")
-            config_content = f"""
-# Snipaster keybinding
-"{script_path}"
-  F1
-"""
-            with open(xbindkeys_config, "w") as f:
-                f.write(config_content)
-
-            autostart_file = os.path.join(autostart_dir, "xbindkeys.desktop")
-            autostart_content = """
-[Desktop Entry]
-Type=Application
-Name=xbindkeys
-Exec=xbindkeys
-Terminal=false
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-"""
-            with open(autostart_file, "w") as f:
-                f.write(autostart_content)
-
-            subprocess.run(
-                "killall xbindkeys 2>/dev/null || true && xbindkeys &", shell=True
-            )
-
-        time.sleep(step_delay)
-        INSTALL_MESSAGE = "Finalizing setup..."
-        time.sleep(1.0)
-
+        INSTALL_RESULT = install(progress=set_status)
         INSTALL_SUCCESS = True
+    except Exception as exc:  # display a clean error after the animation exits
+        INSTALL_ERROR = str(exc)
+        INSTALL_SUCCESS = False
+        set_status(f"Installation failed: {exc}")
+    finally:
+        INSTALL_DONE = True
 
-    except Exception as e:
-        INSTALL_MESSAGE = f"Error: {e}"
-        # Wait for user to see error
-        time.sleep(5)
-        INSTALL_SUCCESS = True  # Exit anyway
 
-
-class CheckInstallStatus(Effect):
-    """Effect to check if installation is complete."""
-
-    def __init__(self, screen, **kwargs):
-        super(CheckInstallStatus, self).__init__(screen, **kwargs)
-
-    def _update(self, frame_no):
-        if INSTALL_SUCCESS:
-            raise StopApplication("Install Complete")
+class CompletionWatcher(Effect):
+    def _update(self, frame_no: int) -> None:
+        del frame_no
+        if INSTALL_DONE:
+            raise StopApplication("Installation finished")
 
     @property
-    def stop_frame(self):
+    def stop_frame(self) -> int:
         return 0
 
-    def process_event(self, event):
-        # Allow quitting with 'q'
-        if isinstance(event, KeyboardEvent):
-            if event.key_code == ord("q") or event.key_code == ord("Q"):
-                raise StopApplication("User Cancelled")
-        return event
-
-    def reset(self):
+    def reset(self) -> None:
         pass
 
 
-class StatusText(Effect):
-    """Effect to display the current installation status."""
-
-    def __init__(self, screen, **kwargs):
-        super(StatusText, self).__init__(screen, **kwargs)
-
-    def _update(self, frame_no):
-        # Center the text
-        msg = f" {INSTALL_MESSAGE} "
-        x = max(0, (self._screen.width - len(msg)) // 2)
-        y = (self._screen.height // 2) + 6
-
-        # Clear line area first (simple clear)
-        self._screen.print_at(" " * self._screen.width, 0, y, bg=Screen.COLOUR_BLACK)
+class StatusPanel(Effect):
+    def _update(self, frame_no: int) -> None:
+        width = self._screen.width
+        message = f" {INSTALL_MESSAGE} "
+        if len(message) > width - 4:
+            message = message[: max(1, width - 7)] + "..."
+        x = max(0, (width - len(message)) // 2)
+        y = min(self._screen.height - 4, (self._screen.height // 2) + 6)
+        self._screen.print_at(" " * width, 0, y, bg=Screen.COLOUR_BLACK)
         self._screen.print_at(
-            msg, x, y, colour=Screen.COLOUR_CYAN, bg=Screen.COLOUR_BLACK
+            message,
+            x,
+            y,
+            colour=Screen.COLOUR_CYAN,
+            bg=Screen.COLOUR_BLACK,
         )
 
-        # Loading bar
-        bar_width = min(40, self._screen.width - 4)
-        if bar_width > 0:
-            filled_len = (frame_no % bar_width) + 1
-            # "Ping pong" effect for bar
-            cycle = frame_no % (bar_width * 2)
-            if cycle > bar_width:
-                filled_len = bar_width - (cycle - bar_width)
-            else:
-                filled_len = cycle
-
-            bar_content = "=" * filled_len + " " * (bar_width - filled_len)
-            bar = f"[{bar_content}]"
-            bx = max(0, (self._screen.width - len(bar)) // 2)
-            by = y + 2
-
-            self._screen.print_at(
-                " " * self._screen.width, 0, by, bg=Screen.COLOUR_BLACK
-            )
-            self._screen.print_at(
-                bar, bx, by, colour=Screen.COLOUR_GREEN, bg=Screen.COLOUR_BLACK
-            )
+        bar_width = max(8, min(46, width - 6))
+        cycle = frame_no % (bar_width * 2)
+        filled = cycle if cycle <= bar_width else (bar_width * 2) - cycle
+        bar = "[" + "=" * filled + " " * (bar_width - filled) + "]"
+        self._screen.print_at(" " * width, 0, y + 2, bg=Screen.COLOUR_BLACK)
+        self._screen.print_at(
+            bar,
+            max(0, (width - len(bar)) // 2),
+            y + 2,
+            colour=Screen.COLOUR_GREEN,
+            bg=Screen.COLOUR_BLACK,
+        )
 
     @property
-    def stop_frame(self):
+    def stop_frame(self) -> int:
         return 0
 
-    def reset(self):
+    def reset(self) -> None:
         pass
 
 
-def demo(screen):
-    """The main animation setup."""
-
-    # Create renderers first to calculate dimensions
-    title_renderer = FigletText(INSTALL_NAME, font="big")
-    rainbow_title = Rainbow(screen, title_renderer)
-
-    # Calculate centered position
-    # max_width might be 0 if font not loaded? No, pyfiglet usually works.
-    title_x = max(0, (screen.width - title_renderer.max_width) // 2)
-
+def animation(screen: Screen) -> None:
+    title = FigletText(INSTALL_NAME, font="big")
     effects = [
-        # 1. Background: Plasma
-        # Use screen.colours to respect terminal capabilities
         Print(
             screen,
             Plasma(screen.height, screen.width, screen.colours),
@@ -330,66 +104,67 @@ def demo(screen):
             speed=1,
             transparent=False,
         ),
-        # 2. Title: Rainbow Figlet
         Print(
             screen,
-            rainbow_title,
-            y=(screen.height // 2) - 6,
-            x=title_x,
+            Rainbow(screen, title),
+            y=max(0, (screen.height // 2) - 7),
+            x=max(0, (screen.width - title.max_width) // 2),
             speed=1,
             transparent=True,
         ),
-        # 3. Custom Status Text & Progress Bar
-        StatusText(screen),
-        # 4. Completion Checker
-        CheckInstallStatus(screen),
+        StatusPanel(screen),
+        CompletionWatcher(screen),
     ]
-
     screen.play([Scene(effects, -1)], stop_on_resize=True, repeat=False)
 
 
-def main():
-    # Ensure sudo permissions before starting UI
+def run_animation_until_complete() -> None:
+    while not INSTALL_DONE:
+        try:
+            Screen.wrapper(animation)
+        except ResizeScreenError:
+            continue
+        except StopApplication:
+            break
+        except Exception as exc:
+            print(f"Animated display unavailable ({exc}); continuing in text mode.")
+            while not INSTALL_DONE:
+                print(f"\r{INSTALL_MESSAGE:<78}", end="", flush=True)
+                time.sleep(0.25)
+            print()
+            break
+
+
+def main() -> int:
     try:
-        # Allow user to see sudo prompt if needed
-        subprocess.run(["sudo", "-v"], check=True)
-    except subprocess.CalledProcessError:
-        print("Sudo permission required for installation.")
-        sys.exit(1)
+        missing = prepare_privileges()
+    except InstallError as exc:
+        print(f"Snipaster installation failed: {exc}", file=sys.stderr)
+        return 1
 
-    # Start installation in background
-    t = threading.Thread(target=run_installation)
-    t.start()
+    if missing:
+        print("Administrator access confirmed. Starting Snipaster setup...")
 
-    try:
-        Screen.wrapper(demo)
-    except ResizeScreenError:
-        pass
-    except Exception as e:
-        # Log error to file for debugging
-        with open("install_debug.log", "w") as f:
-            f.write(f"Display error: {e}\n")
-        print(f"Graphic mode failed: {e}. Switching to text mode.")
+    worker = threading.Thread(target=run_installation, name="snipaster-installer")
+    worker.start()
+    run_animation_until_complete()
+    worker.join()
 
-    # Ensure thread joins
-    if t.is_alive():
-        print("Waiting for installation to finish...")
-        # If graphic mode failed, show status in text mode
-        while t.is_alive():
-            print(f"\r{INSTALL_MESSAGE}", end="", flush=True)
-            time.sleep(0.5)
-        print()  # Newline
-        t.join()
+    print("\033[H\033[J", end="")
+    if not INSTALL_SUCCESS or INSTALL_RESULT is None:
+        print("SNIPASTER INSTALLATION FAILED")
+        print(INSTALL_ERROR or INSTALL_MESSAGE)
+        return 1
 
-    if not INSTALL_SUCCESS:
-        print(f"\nInstallation failed: {INSTALL_MESSAGE}")
-        sys.exit(1)
-
-    # Final clear and message
-    print("\033[H\033[J", end="")  # Clear screen
-    print(f"✨ {INSTALL_NAME} SETUP COMPLETE! ✨")
-    print("Press F1 to take a screenshot.")
+    result = INSTALL_RESULT
+    print("SNIPASTER IS READY")
+    print("• Press F1 to capture a region.")
+    print("• Click the Snipaster icon on the desktop or in the app menu.")
+    print("• Click the tray capture icon for one-click capture.")
+    print("• After capture, draw, add text, select/crop, save, or copy.")
+    print(f"• Hotkey: {result.hotkey}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
