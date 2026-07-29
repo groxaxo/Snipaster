@@ -803,7 +803,7 @@ class AnnotationWindow(QMainWindow):
         toolbar.addAction(copy_action)
 
         done_action = QAction(QIcon.fromTheme("dialog-ok"), "Save & Close", self)
-        done_action.setShortcut("Ctrl+Return")
+        done_action.setShortcuts([QKeySequence("Ctrl+Return"), QKeySequence("Ctrl+Enter")])
         done_action.triggered.connect(self.save_and_close)
         toolbar.addAction(done_action)
 
@@ -938,23 +938,24 @@ class TrayController:
 
     def __init__(self, app: QApplication) -> None:
         self.app = app
+        self._capture_pending = False
         self.tray = QSystemTrayIcon(app_icon(), app)
         self.tray.setToolTip("Snipaster — click to capture a region")
 
-        menu = QMenu()
-        capture_action = menu.addAction("Capture region")
+        self.menu = QMenu()
+        capture_action = self.menu.addAction("Capture region")
         capture_action.setIcon(QIcon.fromTheme("camera-photo"))
         capture_action.triggered.connect(lambda: launch_detached("capture"))
 
-        folder_action = menu.addAction("Open Screenshots")
+        folder_action = self.menu.addAction("Open Screenshots")
         folder_action.setIcon(QIcon.fromTheme("folder-pictures"))
         folder_action.triggered.connect(open_screenshot_folder)
 
-        menu.addSeparator()
-        quit_action = menu.addAction("Quit Snipaster")
+        self.menu.addSeparator()
+        quit_action = self.menu.addAction("Quit Snipaster")
         quit_action.triggered.connect(app.quit)
 
-        self.tray.setContextMenu(menu)
+        self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._activated)
         self.tray.show()
 
@@ -970,12 +971,20 @@ class TrayController:
             )
 
     def _activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason in (
+        if reason not in (
             QSystemTrayIcon.Trigger,
             QSystemTrayIcon.DoubleClick,
             QSystemTrayIcon.MiddleClick,
         ):
-            launch_detached("capture")
+            return
+        if self._capture_pending:
+            return
+        self._capture_pending = True
+        launch_detached("capture")
+        QTimer.singleShot(700, self._allow_capture)
+
+    def _allow_capture(self) -> None:
+        self._capture_pending = False
 
 
 def create_application(*, tray: bool = False) -> QApplication:
