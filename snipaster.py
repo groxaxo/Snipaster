@@ -4,22 +4,38 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional, Union
 
+if os.name == "nt":
+    import ctypes
+    import ctypes.wintypes
+    import msvcrt
+else:
+    import fcntl
+
 APP_NAME = "Snipaster"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 SCREENSHOT_DIR = Path.home() / "Pictures" / "Screenshots"
 
 try:
-    from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
+    from PyQt5.QtCore import (
+        QAbstractNativeEventFilter,
+        QPoint,
+        QPointF,
+        QRect,
+        QRectF,
+        Qt,
+        QTimer,
+        pyqtSignal,
+    )
     from PyQt5.QtGui import (
         QColor,
         QCloseEvent,
@@ -31,12 +47,14 @@ try:
         QPainter,
         QPainterPath,
         QPen,
+        QPixmap,
     )
     from PyQt5.QtWidgets import (
         QAction,
         QActionGroup,
         QApplication,
         QColorDialog,
+        QDialog,
         QFileDialog,
         QInputDialog,
         QLabel,
@@ -50,9 +68,14 @@ try:
         QWidget,
     )
 except ImportError as exc:  # pragma: no cover - exercised on systems missing the runtime
+    installation_hint = (
+        "PyQt5 with 'uv pip install PyQt5'."
+        if os.name == "nt"
+        else "the Ubuntu package 'python3-pyqt5'."
+    )
     print(
         "Snipaster needs PyQt5. Re-run the installer or install "
-        "the Ubuntu package 'python3-pyqt5'.",
+        + installation_hint,
         file=sys.stderr,
     )
     raise SystemExit(2) from exc
@@ -90,11 +113,14 @@ class CanvasState:
 
 
 class FileLock:
-    """Small non-blocking process lock backed by flock(2)."""
+    """Small non-blocking process lock backed by the operating system."""
 
     def __init__(self, name: str) -> None:
         runtime = os.environ.get("XDG_RUNTIME_DIR")
-        if runtime:
+        if os.name == "nt":
+            root = Path(tempfile.gettempdir()) / "snipaster"
+            root.mkdir(parents=True, exist_ok=True)
+        elif runtime:
             root = Path(runtime)
         else:
             root = Path("/tmp") / f"snipaster-{os.getuid()}"
@@ -104,16 +130,20 @@ class FileLock:
 
     def acquire(self) -> bool:
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        handle = self.path.open("a+")
+        handle = self.path.open("a+b")
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            if os.name == "nt":
+                handle.seek(0)
+                if not handle.read(1):
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, OSError):
             handle.close()
             return False
-        handle.seek(0)
-        handle.truncate()
-        handle.write(str(os.getpid()))
-        handle.flush()
         self._handle = handle
         return True
 
@@ -121,7 +151,11 @@ class FileLock:
         if self._handle is None:
             return
         try:
-            fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+            if os.name == "nt":
+                self._handle.seek(0)
+                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
         finally:
             self._handle.close()
             self._handle = None
@@ -155,7 +189,7 @@ def notify(summary: str, body: str) -> None:
 def icon_path() -> Optional[Path]:
     """Return the first installed or source-tree icon path."""
 
-    candidates = (
+    candidates = [
         Path.home()
         / ".local"
         / "share"
@@ -166,7 +200,10 @@ def icon_path() -> Optional[Path]:
         / "snipaster.svg",
         Path(__file__).resolve().with_name("snipaster-icon.svg"),
         Path(__file__).resolve().parent / "assets" / "snipaster-icon.svg",
-    )
+    ]
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        candidates.insert(0, Path(bundle_root) / "assets" / "snipaster-icon.svg")
     return next((path for path in candidates if path.is_file()), None)
 
 
@@ -179,6 +216,11 @@ def app_icon() -> QIcon:
 
 
 def launcher_path() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable)
+    if os.name == "nt":
+        installed = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Snipaster" / "snipaster.cmd"
+        return installed if installed.is_file() else Path(__file__).resolve()
     installed = Path.home() / ".local" / "bin" / "snipaster"
     return installed if installed.is_file() else Path(__file__).resolve()
 
@@ -187,8 +229,12 @@ def launch_detached(*arguments: str) -> None:
     """Launch another Snipaster mode outside the current Qt event loop."""
 
     launcher = launcher_path()
-    if launcher == Path(__file__).resolve():
+    if getattr(sys, "frozen", False):
+        command = [str(launcher), *arguments]
+    elif launcher == Path(__file__).resolve():
         command = [sys.executable, str(launcher), *arguments]
+    elif os.name == "nt" and launcher.suffix.lower() == ".cmd":
+        command = ["cmd.exe", "/d", "/c", str(launcher), *arguments]
     else:
         command = [str(launcher), *arguments]
     subprocess.Popen(
@@ -203,6 +249,9 @@ def launch_detached(*arguments: str) -> None:
 
 def open_screenshot_folder() -> None:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        os.startfile(SCREENSHOT_DIR)  # type: ignore[attr-defined]
+        return
     opener = shutil.which("xdg-open")
     if not opener:
         notify(APP_NAME, f"Screenshots are stored in {SCREENSHOT_DIR}")
@@ -225,11 +274,103 @@ def _run_capture_command(command: list[str]) -> subprocess.CompletedProcess[str]
     )
 
 
+class RegionSelector(QDialog):
+    """Full-screen native Qt region selector used on Windows."""
+
+    def __init__(self, screenshot: QPixmap, destination: Path) -> None:
+        super().__init__()
+        self.screenshot = screenshot
+        self.destination = destination
+        self.start: Optional[QPoint] = None
+        self.selection = QRect()
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setCursor(Qt.CrossCursor)
+        self.setMouseTracking(True)
+
+    def paintEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        del event
+        painter = QPainter(self)
+        painter.drawPixmap(self.rect(), self.screenshot)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 90))
+        if not self.selection.isEmpty():
+            painter.drawPixmap(self.selection, self.screenshot, self.selection)
+            pen = QPen(QColor("#69e7ff"), 2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(self.selection.adjusted(0, 0, -1, -1))
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:
+            self.start = event.pos()
+            self.selection = QRect(self.start, self.start)
+            self.update()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self.start is not None:
+            self.selection = QRect(self.start, event.pos()).normalized()
+            self.update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.LeftButton or self.start is None:
+            return
+        self.selection = QRect(self.start, event.pos()).normalized()
+        self.start = None
+        if self.selection.width() < 2 or self.selection.height() < 2:
+            self.reject()
+            return
+        scale_x = self.screenshot.width() / max(1, self.width())
+        scale_y = self.screenshot.height() / max(1, self.height())
+        source = QRect(
+            round(self.selection.x() * scale_x),
+            round(self.selection.y() * scale_y),
+            round(self.selection.width() * scale_x),
+            round(self.selection.height() * scale_y),
+        )
+        if self.screenshot.copy(source).save(str(self.destination), "PNG"):
+            self.accept()
+        else:
+            self.reject()
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        if event.key() == Qt.Key_Escape:
+            self.reject()
+        else:
+            super().keyPressEvent(event)
+
+
+def capture_region_windows(destination: Path) -> tuple[bool, str]:
+    app = QApplication.instance()
+    if app is None:
+        return False, "The Windows capture backend requires a Qt application."
+    screen = app.primaryScreen()
+    if screen is None:
+        return False, "No Windows display was found."
+    geometry = QRect()
+    for display in app.screens():
+        geometry = geometry.united(display.geometry())
+    screenshot = screen.grabWindow(
+        0, geometry.x(), geometry.y(), geometry.width(), geometry.height()
+    )
+    if screenshot.isNull():
+        return False, "Windows could not capture the desktop."
+    selector = RegionSelector(screenshot, destination)
+    selector.setGeometry(geometry)
+    result = selector.exec_()
+    if result == QDialog.Accepted and destination.is_file():
+        return True, ""
+    destination.unlink(missing_ok=True)
+    return False, "Capture cancelled."
+
+
 def capture_region(destination: Path) -> tuple[bool, str]:
     """Capture an interactively selected screen region into *destination*."""
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.unlink(missing_ok=True)
+    if os.name == "nt":
+        return capture_region_windows(destination)
     session = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if not session:
         session = "wayland" if os.environ.get("WAYLAND_DISPLAY") else "x11"
@@ -940,12 +1081,16 @@ class TrayController:
         self.app = app
         self._capture_pending = False
         self.tray = QSystemTrayIcon(app_icon(), app)
-        self.tray.setToolTip("Snipaster — click to capture a region")
+        self.tray.setToolTip("Snipaster — F1 captures, F2 captures and annotates")
 
         self.menu = QMenu()
         capture_action = self.menu.addAction("Capture region")
         capture_action.setIcon(QIcon.fromTheme("camera-photo"))
         capture_action.triggered.connect(lambda: launch_detached("capture"))
+
+        annotate_action = self.menu.addAction("Capture and annotate")
+        annotate_action.setIcon(QIcon.fromTheme("draw-freehand"))
+        annotate_action.triggered.connect(lambda: launch_detached("annotate"))
 
         folder_action = self.menu.addAction("Open Screenshots")
         folder_action.setIcon(QIcon.fromTheme("folder-pictures"))
@@ -958,6 +1103,24 @@ class TrayController:
         self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._activated)
         self.tray.show()
+
+        self.hotkey_filter: Optional[WindowsHotkeyFilter] = None
+        if os.name == "nt":
+            hotkey_filter = WindowsHotkeyFilter(
+                lambda: launch_detached("capture"),
+                lambda: launch_detached("annotate"),
+            )
+            if hotkey_filter.register():
+                app.installNativeEventFilter(hotkey_filter)
+                self.hotkey_filter = hotkey_filter
+                app.aboutToQuit.connect(self.close)
+            else:
+                self.tray.showMessage(
+                    APP_NAME,
+                    "F1 or F2 is already assigned by another application.",
+                    QSystemTrayIcon.Warning,
+                    5000,
+                )
 
         if QSystemTrayIcon.supportsMessages():
             QTimer.singleShot(
@@ -986,6 +1149,58 @@ class TrayController:
     def _allow_capture(self) -> None:
         self._capture_pending = False
 
+    def close(self) -> None:
+        if self.hotkey_filter is not None:
+            self.hotkey_filter.unregister()
+
+
+class WindowsHotkeyFilter(QAbstractNativeEventFilter):
+    """Register F1 and F2 as global Windows hotkeys while the tray runs."""
+
+    CAPTURE_HOTKEY_ID = 0x534E
+    ANNOTATE_HOTKEY_ID = 0x534F
+    WM_HOTKEY = 0x0312
+    VK_F1 = 0x70
+    VK_F2 = 0x71
+
+    def __init__(self, capture, annotate) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
+        self.callbacks = {
+            self.CAPTURE_HOTKEY_ID: capture,
+            self.ANNOTATE_HOTKEY_ID: annotate,
+        }
+        self.registered = False
+
+    def register(self) -> bool:
+        if os.name != "nt":
+            return False
+        registered = []
+        for hotkey_id, key in (
+            (self.CAPTURE_HOTKEY_ID, self.VK_F1),
+            (self.ANNOTATE_HOTKEY_ID, self.VK_F2),
+        ):
+            if not ctypes.windll.user32.RegisterHotKey(None, hotkey_id, 0, key):
+                for registered_id in registered:
+                    ctypes.windll.user32.UnregisterHotKey(None, registered_id)
+                return False
+            registered.append(hotkey_id)
+        self.registered = True
+        return True
+
+    def unregister(self) -> None:
+        if self.registered:
+            for hotkey_id in self.callbacks:
+                ctypes.windll.user32.UnregisterHotKey(None, hotkey_id)
+            self.registered = False
+
+    def nativeEventFilter(self, event_type, message):  # type: ignore[no-untyped-def]
+        if os.name == "nt" and event_type in (b"windows_generic_MSG", b"windows_dispatcher_MSG"):
+            msg = ctypes.wintypes.MSG.from_address(int(message))
+            if msg.message == self.WM_HOTKEY and msg.wParam in self.callbacks:
+                self.callbacks[msg.wParam]()
+                return True, 0
+        return False, 0
+
 
 def create_application(*, tray: bool = False) -> QApplication:
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
@@ -1000,12 +1215,14 @@ def create_application(*, tray: bool = False) -> QApplication:
 
 
 def require_graphical_session() -> None:
+    if os.name == "nt":
+        return
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         return
     raise SystemExit("Snipaster requires a graphical desktop session.")
 
 
-def run_capture() -> int:
+def run_capture(*, annotate: bool = False) -> int:
     require_graphical_session()
     lock = FileLock("snipaster-capture.lock")
     if not lock.acquire():
@@ -1013,6 +1230,7 @@ def run_capture() -> int:
         return 1
 
     try:
+        app = create_application() if os.name == "nt" else None
         SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
         path = SCREENSHOT_DIR / f"screenshot-{timestamp}.png"
@@ -1024,14 +1242,25 @@ def run_capture() -> int:
                 return 2
             return 0
 
-        app = create_application()
-        try:
-            window = AnnotationWindow(path)
-        except ValueError as exc:
-            notify("Capture failed", str(exc))
-            print(str(exc), file=sys.stderr)
+        if app is None:
+            app = create_application()
+        if annotate:
+            try:
+                window = AnnotationWindow(path)
+            except ValueError as exc:
+                notify("Capture failed", str(exc))
+                print(str(exc), file=sys.stderr)
+                return 2
+            window.showMaximized()
+            return app.exec_()
+
+        image = QImage(str(path))
+        if image.isNull():
+            print(f"Could not copy screenshot: {path}", file=sys.stderr)
             return 2
-        window.showMaximized()
+        QApplication.clipboard().setImage(image)
+        notify("Screenshot captured", "Copied to the clipboard. Paste it with Ctrl+V.")
+        QTimer.singleShot(150, app.quit)
         return app.exec_()
     finally:
         lock.release()
@@ -1075,11 +1304,12 @@ def run_tray() -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="snipaster",
-        description="Capture, annotate, save, and copy screen regions on Ubuntu.",
+        description="Capture, annotate, save, and copy screen regions.",
     )
     parser.add_argument("--version", action="version", version=APP_VERSION)
     subcommands = parser.add_subparsers(dest="command")
-    subcommands.add_parser("capture", help="Capture a region and open the editor")
+    subcommands.add_parser("capture", help="Capture a region and copy it to the clipboard")
+    subcommands.add_parser("annotate", help="Capture a region and open the annotation editor")
     subcommands.add_parser("tray", help="Run the persistent capture icon")
     edit = subcommands.add_parser("edit", help="Open an existing image in the editor")
     edit.add_argument("image", type=Path)
@@ -1091,6 +1321,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     arguments = build_parser().parse_args(argv)
     if arguments.command in (None, "capture"):
         return run_capture()
+    if arguments.command == "annotate":
+        return run_capture(annotate=True)
     if arguments.command == "tray":
         return run_tray()
     if arguments.command == "edit":

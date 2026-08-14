@@ -18,7 +18,7 @@ def main() -> int:
         return 1
 
     print("\nSnipaster is ready.")
-    print("Press F1, click the desktop icon, or use the tray capture icon.")
+    print("Press F1 to capture and copy, or F2 to capture and annotate.")
     print(f"Hotkey: {result.hotkey}")
     return 0
 

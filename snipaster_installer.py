@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -104,6 +105,8 @@ def missing_packages() -> list[str]:
 def prepare_privileges() -> list[str]:
     """Cache sudo credentials before an animated installation starts."""
 
+    if os.name == "nt":
+        return []
     if os.geteuid() == 0:
         raise InstallError(
             "Run the installer as your normal desktop user, not with sudo. "
@@ -169,6 +172,31 @@ def ensure_packages(progress: Progress) -> None:
 
 def install_paths(home: Optional[Path] = None) -> InstallPaths:
     root = (home or Path.home()).expanduser().resolve()
+    if os.name == "nt":
+        app_dir = (
+            root / "AppData" / "Local" / "Snipaster"
+            if home is not None
+            else Path(os.environ.get("LOCALAPPDATA", root / "AppData" / "Local"))
+            / "Snipaster"
+        )
+        roaming = (
+            root / "AppData" / "Roaming"
+            if home is not None
+            else Path(os.environ.get("APPDATA", root / "AppData" / "Roaming"))
+        )
+        programs = roaming / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        desktop = resolve_desktop_dir(root)
+        return InstallPaths(
+            home=root,
+            app_dir=app_dir,
+            bin_dir=app_dir,
+            launcher=app_dir / "snipaster.cmd",
+            compatibility_launcher=app_dir / "snipaster_shot.cmd",
+            icon=app_dir / "snipaster-icon.svg",
+            applications_entry=programs / "Snipaster.cmd",
+            desktop_entry=desktop / "Snipaster.cmd",
+            tray_autostart=programs / "Startup" / "Snipaster Tray.cmd",
+        )
     app_dir = root / ".local" / "share" / "snipaster"
     bin_dir = root / ".local" / "bin"
     applications = root / ".local" / "share" / "applications"
@@ -197,6 +225,13 @@ def install_paths(home: Optional[Path] = None) -> InstallPaths:
 
 
 def resolve_desktop_dir(home: Path) -> Path:
+    if os.name == "nt":
+        one_drive = os.environ.get("OneDrive")
+        if home == Path.home().expanduser().resolve() and one_drive:
+            candidate = Path(one_drive) / "Desktop"
+            if candidate.is_dir():
+                return candidate
+        return home / "Desktop"
     xdg_user_dir = shutil.which("xdg-user-dir")
     if xdg_user_dir and home == Path.home().expanduser().resolve():
         result = _run([xdg_user_dir, "DESKTOP"], check=False, capture=True)
@@ -222,6 +257,7 @@ def desktop_exec(executable: Path, *arguments: str) -> str:
 
 def make_application_entry(paths: InstallPaths) -> str:
     capture = desktop_exec(paths.launcher, "capture")
+    annotate = desktop_exec(paths.launcher, "annotate")
     open_folder = desktop_exec(paths.launcher, "open-folder")
     return f"""[Desktop Entry]
 Version=1.0
@@ -229,19 +265,24 @@ Type=Application
 Name=Snipaster
 GenericName=Screenshot and annotation tool
 Comment=Capture a region, draw, add text, crop, save, and copy
-Exec={capture}
+Exec={annotate}
 TryExec={paths.launcher}
 Icon={paths.icon}
 Terminal=false
 StartupNotify=true
 Categories=Graphics;Utility;
 Keywords=screenshot;capture;snip;annotation;draw;text;crop;
-Actions=Capture;OpenScreenshots;
+Actions=Capture;Annotate;OpenScreenshots;
 X-GNOME-UsesNotifications=true
 
 [Desktop Action Capture]
 Name=Capture a screen region
 Exec={capture}
+Icon={paths.icon}
+
+[Desktop Action Annotate]
+Name=Capture and annotate
+Exec={annotate}
 Icon={paths.icon}
 
 [Desktop Action OpenScreenshots]
@@ -276,11 +317,104 @@ def _write_text(path: Path, content: str, mode: int = 0o644) -> None:
     temporary.replace(path)
 
 
+def _windows_python(paths: InstallPaths, *, windowed: bool = False) -> Path:
+    name = "pythonw.exe" if windowed else "python.exe"
+    return paths.app_dir / ".venv" / "Scripts" / name
+
+
+def _install_windows_runtime(paths: InstallPaths, progress: Progress) -> None:
+    python = _windows_python(paths)
+    if not python.is_file():
+        progress("Creating the private Python runtime...")
+        uv = shutil.which("uv")
+        if uv:
+            result = _run(
+                [uv, "venv", str(paths.app_dir / ".venv"), "--python", sys.executable],
+                check=False,
+                capture=True,
+            )
+        else:
+            result = _run(
+                [sys.executable, "-m", "venv", str(paths.app_dir / ".venv")],
+                check=False,
+                capture=True,
+            )
+        if result.returncode != 0:
+            raise InstallError("Could not create Snipaster's private Python runtime.")
+
+    progress("Installing the Windows graphical runtime...")
+    uv = shutil.which("uv")
+    command = (
+        [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            str(python),
+            "PyQt5==5.15.11",
+            "PyQt5-Qt5==5.15.2",
+        ]
+        if uv
+        else [
+            str(python),
+            "-m",
+            "pip",
+            "install",
+            "PyQt5==5.15.11",
+            "PyQt5-Qt5==5.15.2",
+        ]
+    )
+    result = _run(command, check=False, capture=True)
+    if result.returncode != 0:
+        details = "\n".join(result.stderr.strip().splitlines()[-8:])
+        raise InstallError(
+            "Could not install PyQt5 into Snipaster's private runtime."
+            + (f"\n{details}" if details else "")
+        )
+
+
+def install_windows_application_files(
+    source_dir: Path,
+    paths: InstallPaths,
+    progress: Progress,
+    *,
+    install_runtime: bool = True,
+) -> None:
+    app_source = source_dir / "snipaster.py"
+    icon_source = source_dir / "assets" / "snipaster-icon.svg"
+    if not app_source.is_file() or not icon_source.is_file():
+        raise InstallError("Snipaster application files are missing from the source tree.")
+
+    progress("Installing the Snipaster application...")
+    paths.app_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(app_source, paths.app_dir / "snipaster.py")
+    shutil.copy2(icon_source, paths.icon)
+    if install_runtime:
+        _install_windows_runtime(paths, progress)
+
+    pythonw = _windows_python(paths, windowed=True) if install_runtime else Path(sys.executable)
+    app = paths.app_dir / "snipaster.py"
+    launcher = f'@echo off\n"{pythonw}" "{app}" %*\n'
+    compatibility = f'@echo off\ncall "{paths.launcher}" capture %*\n'
+    _write_text(paths.launcher, launcher)
+    _write_text(paths.compatibility_launcher, compatibility)
+
+    progress("Creating Desktop and Start Menu launchers...")
+    annotate = f'@echo off\ncall "{paths.launcher}" annotate %*\n'
+    tray = f'@echo off\ncall "{paths.launcher}" tray\n'
+    _write_text(paths.desktop_entry, annotate)
+    _write_text(paths.applications_entry, annotate)
+    _write_text(paths.tray_autostart, tray)
+
+
 def install_application_files(
     source_dir: Path,
     paths: InstallPaths,
     progress: Progress,
 ) -> None:
+    if os.name == "nt":
+        install_windows_application_files(source_dir, paths, progress)
+        return
     app_source = source_dir / "snipaster.py"
     icon_source = source_dir / "assets" / "snipaster-icon.svg"
     if not app_source.is_file():
@@ -385,23 +519,21 @@ def _gsettings_set(schema: str, key: str, value: str) -> None:
     _run(["gsettings", "set", schema, key, value])
 
 
-def setup_gnome_hotkey(paths: InstallPaths) -> str:
+def setup_gnome_hotkey(
+    paths: InstallPaths, binding_name: str, command: str, binding: str
+) -> None:
     raw = _gsettings_get(GNOME_MEDIA_SCHEMA, "custom-keybindings")
     bindings = parse_gvariant_string_array(raw)
-    command = f"{paths.launcher} capture"
     chosen: Optional[str] = None
 
     for path in bindings:
         schema = f"{GNOME_MEDIA_SCHEMA}.custom-keybinding:{path}"
         try:
-            name = parse_gvariant_string(_gsettings_get(schema, "name"))
+            existing_name = parse_gvariant_string(_gsettings_get(schema, "name"))
             configured = parse_gvariant_string(_gsettings_get(schema, "command"))
         except subprocess.CalledProcessError:
             continue
-        if name in {"Snipaster", "Snipaster Capture"} or configured in {
-            command,
-            str(paths.compatibility_launcher),
-        }:
+        if existing_name == binding_name or configured == command:
             chosen = path
             break
 
@@ -415,13 +547,14 @@ def setup_gnome_hotkey(paths: InstallPaths) -> str:
         _gsettings_set(GNOME_MEDIA_SCHEMA, "custom-keybindings", repr(bindings))
 
     schema = f"{GNOME_MEDIA_SCHEMA}.custom-keybinding:{chosen}"
-    _gsettings_set(schema, "name", gvariant_string("Snipaster Capture"))
+    _gsettings_set(schema, "name", gvariant_string(binding_name))
     _gsettings_set(schema, "command", gvariant_string(command))
-    _gsettings_set(schema, "binding", gvariant_string("F1"))
-    return "F1 through GNOME custom shortcuts"
+    _gsettings_set(schema, "binding", gvariant_string(binding))
 
 
-def merge_xbindkeys_config(existing: str, command: str) -> str:
+def merge_xbindkeys_config(
+    existing: str, capture_command: str, annotate_command: Optional[str] = None
+) -> str:
     """Install one idempotent managed block without deleting user shortcuts."""
 
     pattern = re.compile(
@@ -432,9 +565,15 @@ def merge_xbindkeys_config(existing: str, command: str) -> str:
     preserved = pattern.sub("\n", existing).rstrip()
     block = (
         f'{MANAGED_XBINDKEYS_START}\n'
-        f'"{command}"\n'
+        f'"{capture_command}"\n'
         "  F1\n"
-        f"{MANAGED_XBINDKEYS_END}"
+        + (
+            f'"{annotate_command}"\n'
+            "  F2\n"
+            if annotate_command
+            else ""
+        )
+        + f"{MANAGED_XBINDKEYS_END}"
     )
     return f"{preserved}\n\n{block}\n" if preserved else f"{block}\n"
 
@@ -442,8 +581,13 @@ def merge_xbindkeys_config(existing: str, command: str) -> str:
 def setup_x11_hotkey(paths: InstallPaths) -> str:
     config = paths.home / ".xbindkeysrc"
     existing = config.read_text(encoding="utf-8") if config.is_file() else ""
-    command = f"{paths.launcher} capture"
-    _write_text(config, merge_xbindkeys_config(existing, command), 0o600)
+    capture_command = f"{paths.launcher} capture"
+    annotate_command = f"{paths.launcher} annotate"
+    _write_text(
+        config,
+        merge_xbindkeys_config(existing, capture_command, annotate_command),
+        0o600,
+    )
 
     autostart = paths.home / ".config" / "autostart" / "snipaster-xbindkeys.desktop"
     _write_text(
@@ -469,10 +613,13 @@ X-GNOME-Autostart-enabled=true
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    return "F1 through xbindkeys"
+    return "F1 capture and F2 annotation through xbindkeys"
 
 
 def configure_hotkey(paths: InstallPaths, progress: Progress) -> str:
+    if os.name == "nt":
+        progress("Configuring F1 capture and F2 annotation through the tray process...")
+        return "F1 capture and F2 annotation through the Windows tray process"
     session = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if not session:
         session = "wayland" if os.environ.get("WAYLAND_DISPLAY") else "x11"
@@ -482,7 +629,18 @@ def configure_hotkey(paths: InstallPaths, progress: Progress) -> str:
     if gnome and shutil.which("gsettings"):
         progress("Binding F1 to Snipaster in GNOME...")
         try:
-            hotkey = setup_gnome_hotkey(paths)
+            setup_gnome_hotkey(
+                paths,
+                "Snipaster Capture",
+                f"{paths.launcher} capture",
+                "F1",
+            )
+            setup_gnome_hotkey(
+                paths,
+                "Snipaster Annotate",
+                f"{paths.launcher} annotate",
+                "F2",
+            )
         except (subprocess.CalledProcessError, InstallError) as exc:
             raise InstallError(
                 "GNOME rejected the F1 shortcut configuration. "
@@ -494,7 +652,7 @@ def configure_hotkey(paths: InstallPaths, progress: Progress) -> str:
             / "autostart"
             / "snipaster-xbindkeys.desktop"
         ).unlink(missing_ok=True)
-        return hotkey
+        return "F1 capture and F2 annotation through GNOME custom shortcuts"
 
     if session != "wayland":
         progress("Binding F1 to Snipaster through xbindkeys...")
@@ -507,6 +665,19 @@ def configure_hotkey(paths: InstallPaths, progress: Progress) -> str:
 
 
 def start_tray(paths: InstallPaths) -> bool:
+    if os.name == "nt":
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/d", "/c", str(paths.launcher), "tray"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS,
+            )
+        except OSError:
+            return False
+        return True
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return False
     try:
@@ -537,8 +708,11 @@ def validate_installation(paths: InstallPaths) -> None:
     if missing:
         raise InstallError("Installation validation failed; missing: " + ", ".join(missing))
 
+    python = _windows_python(paths) if os.name == "nt" else Path("/usr/bin/python3")
+    if os.name == "nt" and not python.is_file():
+        python = Path(sys.executable)
     result = _run(
-        ["/usr/bin/python3", "-m", "py_compile", str(paths.app_dir / "snipaster.py")],
+        [str(python), "-m", "py_compile", str(paths.app_dir / "snipaster.py")],
         check=False,
         capture=True,
     )
@@ -556,17 +730,22 @@ def install(
 ) -> InstallationResult:
     """Install Snipaster and return the resulting user-level paths."""
 
-    if os.geteuid() == 0 and home is None:
+    if os.name != "nt" and os.geteuid() == 0 and home is None:
         raise InstallError(
             "Run Snipaster as your normal desktop user, not with sudo."
         )
     paths = install_paths(home)
 
-    if install_system_packages:
+    if install_system_packages and os.name != "nt":
         progress("Checking the Ubuntu desktop runtime...")
         ensure_packages(progress)
 
-    install_application_files(source_dir, paths, progress)
+    if os.name == "nt":
+        install_windows_application_files(
+            source_dir, paths, progress, install_runtime=home is None
+        )
+    else:
+        install_application_files(source_dir, paths, progress)
     hotkey = configure_hotkey(paths, progress) if home is None else "not configured in test mode"
     progress("Validating the installed application...")
     validate_installation(paths)

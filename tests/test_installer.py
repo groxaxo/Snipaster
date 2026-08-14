@@ -36,6 +36,14 @@ class XbindkeysMergeTests(unittest.TestCase):
         self.assertEqual(once.count("Snipaster managed shortcut >>>"), 1)
         self.assertIn(f'"{command}"\n  F1', once)
 
+    def test_adds_annotation_hotkey_when_requested(self) -> None:
+        config = snipaster_installer.merge_xbindkeys_config(
+            "", "snipaster capture", "snipaster annotate"
+        )
+
+        self.assertIn('"snipaster capture"\n  F1', config)
+        self.assertIn('"snipaster annotate"\n  F2', config)
+
 
 class UserInstallTests(unittest.TestCase):
     def test_user_level_install_creates_launchers_and_icons(self) -> None:
@@ -57,13 +65,19 @@ class UserInstallTests(unittest.TestCase):
             self.assertTrue(paths.desktop_entry.is_file())
             self.assertTrue(paths.applications_entry.is_file())
             self.assertTrue(paths.icon.is_file())
-            self.assertIn(
-                '"capture"', paths.desktop_entry.read_text(encoding="utf-8")
-            )
-            subprocess.run(["sh", "-n", str(paths.launcher)], check=True)
-            subprocess.run(
-                ["sh", "-n", str(paths.compatibility_launcher)], check=True
-            )
+            desktop_entry = paths.desktop_entry.read_text(encoding="utf-8")
+            if os.name == "nt":
+                self.assertEqual(paths.launcher.suffix, ".cmd")
+                self.assertIn("@echo off", desktop_entry)
+                self.assertIn("annotate", desktop_entry)
+                self.assertIn("AppData\\Local\\Snipaster", str(paths.launcher))
+            else:
+                self.assertIn("capture", desktop_entry)
+                self.assertIn("annotate", desktop_entry)
+                subprocess.run(["sh", "-n", str(paths.launcher)], check=True)
+                subprocess.run(
+                    ["sh", "-n", str(paths.compatibility_launcher)], check=True
+                )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/snipaster-banner.svg" alt="Snipaster — capture, annotate, save, and copy screenshots on Ubuntu" width="100%" />
+  <img src="./assets/snipaster-banner.svg" alt="Snipaster - capture, annotate, save, and copy screenshots" width="100%" />
 </p>
 
 <p align="center">
@@ -9,20 +9,23 @@
 <h1 align="center">Snipaster</h1>
 
 <p align="center">
-  <strong>Press F1. Capture a region. Mark it up immediately.</strong><br />
-  A fast, local screenshot and annotation workflow for Ubuntu Wayland and X11.
+  <strong>F1 copies a capture. F2 opens the annotation editor.</strong><br />
+  A fast, local screenshot and annotation workflow for Windows and Ubuntu.
 </p>
 
 <p align="center">
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/github/license/groxaxo/Snipaster?style=for-the-badge" /></a>
   <img alt="Python 3.11 or newer" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&amp;logo=python&amp;logoColor=white" />
   <img alt="Ubuntu" src="https://img.shields.io/badge/Ubuntu-Wayland%20%2B%20X11-E95420?style=for-the-badge&amp;logo=ubuntu&amp;logoColor=white" />
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%2B%2011-0078D4?style=for-the-badge&amp;logo=windows&amp;logoColor=white" />
   <img alt="Local by design" src="https://img.shields.io/badge/captures-local%20only-19B99A?style=for-the-badge" />
 </p>
 
-Snipaster turns three easy entry points—**F1**, a **desktop capture icon**, and a **one-click tray icon**—into the same workflow:
+Snipaster keeps quick capture and annotation separate:
 
-> **select a region → draw or write → select/crop → save and copy**
+> **F1: select a region → save → copy**
+>
+> **F2: select a region → draw or write → select/crop → save and copy**
 
 Every screenshot stays on your machine. Snipaster has no account, cloud upload, analytics, or telemetry.
 
@@ -30,9 +33,10 @@ Every screenshot stays on your machine. Snipaster has no account, cloud upload, 
 
 | Feature | Behaviour |
 |---|---|
-| **F1 capture** | Opens interactive region capture and launches Snipaster automatically when the capture succeeds. |
-| **Desktop icon** | Installs `Snipaster.desktop` on the user's desktop and in the application menu. |
-| **Tray capture icon** | Starts at login; a normal click captures immediately and right-click exposes Capture, Open Screenshots, and Quit. |
+| **F1 quick capture** | Opens a region selector, saves the PNG, and copies it to the clipboard without opening an editor. |
+| **F2 annotation** | Opens the region selector, then launches the annotation editor after capture. |
+| **Desktop icon** | Installs a capture-and-annotate launcher on the user's desktop and in the application menu. |
+| **Tray capture icon** | Starts at login; its menu offers quick capture, annotation, screenshots, and quit. |
 | **Draw** | Freehand drawing with configurable colour and brush width. |
 | **Text** | Click anywhere on the image, enter text, and control its colour and size. |
 | **Select** | Drag a rectangular region, then copy only that selection or crop the image to it. |
@@ -42,6 +46,35 @@ Every screenshot stays on your machine. Snipaster has no account, cloud upload, 
 
 ## Quick start
 
+### Windows installer
+
+Build the signed-in user's Windows application and setup executable with:
+
+```powershell
+winget install --id Astral.uv
+winget install --id JRSoftware.InnoSetup
+.\build_windows.ps1
+```
+
+The build creates these standalone artifacts, with the Snipaster reticle-and-pen
+logo embedded in both:
+
+```text
+dist\Snipaster.exe
+dist\Snipaster-Setup-0.2.0.exe
+```
+
+Run `Snipaster-Setup-0.2.0.exe` to use the standard Windows setup wizard. It
+offers Full, Compact, and Custom installation types, with optional components
+for the Start Menu shortcut, the Desktop annotation shortcut, and the tray
+process that provides the global F1/F2 hotkeys at sign-in. The installer is
+per-user, installs no service, and does not require administrator access.
+
+The installed application lives under `%LOCALAPPDATA%\Programs\Snipaster`.
+Its Start Menu and Desktop shortcuts open the annotation workflow.
+
+### Source installer
+
 ```bash
 git clone https://github.com/groxaxo/Snipaster.git
 cd Snipaster
@@ -50,17 +83,21 @@ cd Snipaster
 uv run install_snipaster.py
 ```
 
+On Windows, install `uv` first if necessary, then run the same command from
+PowerShell. The source installer creates a private runtime and does not require
+an administrator prompt. Use the setup executable above for the normal Windows
+installation experience.
+
 The installer will:
 
-1. Install any missing Ubuntu runtime packages.
-2. Install the Snipaster application under `~/.local/share/snipaster/`.
-3. Add the `snipaster` command under `~/.local/bin/`.
-4. Create the application-menu and desktop capture icons.
-5. Enable the capture tray icon at login.
-6. Bind <kbd>F1</kbd> on GNOME, or configure `xbindkeys` on non-GNOME X11.
+1. Install the platform's required graphical runtime.
+2. Install Snipaster into a user-level application directory.
+3. Create application-menu and desktop launchers.
+4. Enable the capture tray icon at login.
+5. Bind <kbd>F1</kbd> for quick capture and <kbd>F2</kbd> for annotation through the tray process on Windows, GNOME shortcuts, or `xbindkeys`.
 
 > [!IMPORTANT]
-> Run the installer as your normal desktop user—**not** with `sudo`. It requests administrator access only when `apt` needs to install missing packages.
+> Run the installer as your normal desktop user. On Ubuntu, do not use `sudo`; the installer requests it only when `apt` needs missing packages.
 
 ### Plain installer
 
@@ -77,20 +114,20 @@ The installed desktop application uses Ubuntu's system Python and PyQt5. The ani
 ```mermaid
 flowchart LR
     A["Press F1"] --> D["Select a screen region"]
-    B["Click desktop icon"] --> D
-    C["Click tray capture icon"] --> D
-    D --> E["Snipaster editor opens"]
-    E --> F["Draw"]
-    E --> G["Add text"]
-    E --> H["Select / crop"]
-    F --> I["Save and copy"]
-    G --> I
-    H --> I
-    I --> J["Paste anywhere"]
+    D --> J["Save and copy"]
+    B["Press F2 or click desktop icon"] --> E["Select a screen region"]
+    C["Tray: Capture and annotate"] --> E
+    E --> F["Snipaster editor opens"]
+    F --> G["Draw"]
+    F --> H["Add text"]
+    F --> I["Select / crop"]
+    G --> J
+    H --> J
+    I --> J
 ```
 
-1. Press <kbd>F1</kbd>, click **Snipaster** on the desktop, or click the tray capture icon.
-2. Drag over the part of the screen to capture.
+1. Press <kbd>F1</kbd> and drag over the part of the screen to capture and copy it immediately.
+2. Press <kbd>F2</kbd>, click **Snipaster** on the desktop, or choose **Capture and annotate** from the tray menu to edit a capture.
 3. Use **Draw**, **Text**, or **Select** in the editor.
 4. Choose **Crop** or **Copy selection** when a selection is active.
 5. Click **Save & Close**, then paste with <kbd>Ctrl</kbd> + <kbd>V</kbd>.
@@ -115,14 +152,20 @@ Cancelling the region selector creates no file and does not open the editor.
 
 ## Capture backends
 
-| Desktop session | Region capture | F1 integration | Status |
+| Desktop session | Region capture | Hotkey integration | Status |
 |---|---|---|---|
-| Ubuntu GNOME on Wayland | `gnome-screenshot` | GNOME custom shortcut through `gsettings` | First-class |
-| Ubuntu GNOME on X11 | `gnome-screenshot` or `scrot` | GNOME custom shortcut through `gsettings` | First-class |
-| Other X11 desktops | `scrot` | Managed block inside the existing `~/.xbindkeysrc` | Supported |
-| wlroots Wayland compositors | `grim` + `slurp` when already installed | Bind `~/.local/bin/snipaster capture` in the compositor | Manual hotkey |
+| Windows 10/11 | Native Qt virtual-desktop capture | F1 quick capture and F2 annotation through the tray process | Supported |
+| Ubuntu GNOME on Wayland | `gnome-screenshot` | F1/F2 GNOME custom shortcuts through `gsettings` | First-class |
+| Ubuntu GNOME on X11 | `gnome-screenshot` or `scrot` | F1/F2 GNOME custom shortcuts through `gsettings` | First-class |
+| Other X11 desktops | `scrot` | F1/F2 managed block inside the existing `~/.xbindkeysrc` | Supported |
+| wlroots Wayland compositors | `grim` + `slurp` when already installed | Bind `snipaster capture` and `snipaster annotate` in the compositor | Manual hotkeys |
 
 The X11 installer is idempotent and preserves unrelated `xbindkeys` shortcuts. It replaces only the block delimited by Snipaster's managed markers.
+
+The Windows setup executable installs under `%LOCALAPPDATA%\Programs\Snipaster`.
+The source installer uses `%LOCALAPPDATA%\Snipaster`. Both offer user-level
+launchers and a startup tray process; screenshots are saved under
+`%USERPROFILE%\Pictures\Screenshots`.
 
 ## Files installed
 
@@ -140,6 +183,13 @@ The X11 installer is idempotent and preserves unrelated `xbindkeys` shortcuts. I
 | `~/Desktop/Snipaster.desktop` | One-click desktop capture launcher |
 | `~/.config/autostart/snipaster-tray.desktop` | Starts the capture icon after login |
 | `~/Pictures/Screenshots/` | Timestamped PNG captures |
+
+| Windows path | Purpose |
+|---|---|
+| `%LOCALAPPDATA%\Programs\Snipaster\Snipaster.exe` | Standalone Windows application installed by the setup executable |
+| `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Snipaster\Snipaster.lnk` | Optional Start Menu annotation shortcut |
+| `%USERPROFILE%\Desktop\Snipaster.lnk` | Optional Desktop annotation shortcut |
+| `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Snipaster Tray.lnk` | Optional startup tray process for F1/F2 |
 
 GNOME also receives one custom shortcut named **Snipaster Capture**. Non-GNOME X11 receives one managed block in `~/.xbindkeysrc` and an `xbindkeys` autostart entry.
 
@@ -163,8 +213,11 @@ xdg-utils
 ## Command line
 
 ```bash
-# Capture a region and open the annotation editor
+# Capture a region and copy it to the clipboard
 snipaster capture
+
+# Capture a region and open the annotation editor
+snipaster annotate
 
 # Open an existing image in the editor
 snipaster edit ~/Pictures/Screenshots/example.png
@@ -180,12 +233,13 @@ Running `snipaster` with no subcommand is equivalent to `snipaster capture`.
 
 ## Troubleshooting
 
-### F1 does not open Snipaster
+### F1 or F2 does not work
 
 Run the capture command directly:
 
 ```bash
 ~/.local/bin/snipaster capture
+~/.local/bin/snipaster annotate
 ```
 
 On GNOME, inspect the registered shortcut:
@@ -194,7 +248,12 @@ On GNOME, inspect the registered shortcut:
 gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings
 ```
 
-You can also open **Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts** and confirm that **Snipaster Capture** uses <kbd>F1</kbd>.
+You can also open **Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts** and confirm that **Snipaster Capture** uses <kbd>F1</kbd> and **Snipaster Annotate** uses <kbd>F2</kbd>.
+
+On Windows, install the **Tray icon and global F1/F2 hotkeys at sign-in**
+component, then restart Snipaster from the Startup folder or sign out and back
+in. If another application has already registered either key, Snipaster leaves
+both hotkeys unregistered and shows a tray warning.
 
 ### The tray icon is not visible
 
@@ -224,7 +283,11 @@ Then rerun the installer to restore missing runtime packages and installed files
 
 ## Uninstall
 
-Remove the user-level application and launchers:
+On Windows, open **Installed apps**, select **Snipaster**, and choose
+**Uninstall**. This removes the application, optional shortcuts, and startup
+entry but leaves saved screenshots untouched.
+
+On Ubuntu, remove the user-level application and launchers:
 
 ```bash
 pkill -f 'snipaster.py tray' 2>/dev/null || true
@@ -237,11 +300,14 @@ rm -f ~/.config/autostart/snipaster-tray.desktop
 rm -f ~/.config/autostart/snipaster-xbindkeys.desktop
 ```
 
-Then remove **Snipaster Capture** from GNOME custom shortcuts, or delete the Snipaster managed block from `~/.xbindkeysrc` on non-GNOME X11. Existing screenshots and shared Ubuntu packages are intentionally left untouched.
+Then remove **Snipaster Capture** and **Snipaster Annotate** from GNOME custom
+shortcuts, or delete the Snipaster managed block from `~/.xbindkeysrc` on
+non-GNOME X11. Existing screenshots and shared Ubuntu packages are intentionally
+left untouched.
 
 ## Local validation
 
-No hosted CI is required. Validate the repository directly on Ubuntu:
+Validate the source on Ubuntu or Windows:
 
 ```bash
 python3 -m py_compile \
@@ -251,6 +317,13 @@ python3 -m py_compile \
   screenshot_setup.py
 
 python3 -m unittest discover -s tests -v
+```
+
+Build the standalone Windows application and component-selecting setup
+executable with:
+
+```powershell
+.\build_windows.ps1
 ```
 
 ## License

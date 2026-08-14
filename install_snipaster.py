@@ -158,9 +158,9 @@ def main() -> int:
 
     result = INSTALL_RESULT
     print("SNIPASTER IS READY")
-    print("• Press F1 to capture a region.")
-    print("• Click the Snipaster icon on the desktop or in the app menu.")
-    print("• Click the tray capture icon for one-click capture.")
+    print("• Press F1 to capture a region and copy it to the clipboard.")
+    print("• Press F2, or click the Snipaster icon, to capture and annotate.")
+    print("• Use the tray menu for either capture workflow.")
     print("• After capture, draw, add text, select/crop, save, or copy.")
     print(f"• Hotkey: {result.hotkey}")
     return 0

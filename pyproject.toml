@@ -1,11 +1,18 @@
 [project]
 name = "snipaster"
-version = "0.1.0"
-description = "A local Ubuntu screenshot, annotation, desktop launcher, and tray workflow."
+version = "0.2.0"
+description = "A local Windows and Linux screenshot, annotation, launcher, and tray workflow."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-keywords = ["screenshot", "annotation", "ubuntu", "wayland", "x11", "clipboard", "hotkey"]
+keywords = ["screenshot", "annotation", "windows", "ubuntu", "wayland", "x11", "clipboard", "hotkey"]
 dependencies = [
     "asciimatics>=1.15.0",
+    "PyQt5==5.15.11; sys_platform == 'win32'",
+    "PyQt5-Qt5==5.15.2; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+build = [
+    "pyinstaller>=6.10,<7",
 ]
