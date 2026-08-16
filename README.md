@@ -73,6 +73,33 @@ per-user, installs no service, and does not require administrator access.
 The installed application lives under `%LOCALAPPDATA%\Programs\Snipaster`.
 Its Start Menu and Desktop shortcuts open the annotation workflow.
 
+### Launching on Windows
+
+Snipaster runs as a tray utility when global hotkeys are enabled. Start it from
+PowerShell with:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Snipaster\Snipaster.exe" tray
+```
+
+With the tray process running:
+
+- Press <kbd>F1</kbd> to select, save, and copy a screenshot without opening the editor.
+- Press <kbd>F2</kbd> to select a screenshot and open the annotation editor.
+
+The direct commands are also available from PowerShell:
+
+```powershell
+# Quick capture and clipboard copy
+& "$env:LOCALAPPDATA\Programs\Snipaster\Snipaster.exe" capture
+
+# Capture and open the annotation editor
+& "$env:LOCALAPPDATA\Programs\Snipaster\Snipaster.exe" annotate
+```
+
+The setup wizard's optional startup component launches `tray` automatically at
+sign-in. Starting `tray` again is safe; Snipaster keeps one tray process active.
+
 ### Source installer
 
 ```bash
